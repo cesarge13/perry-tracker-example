@@ -1,159 +1,123 @@
-# PERRY Swap Tracker (BSC)
+Swap Tracker Multi-Token (BSC)
 
-Tracker on‑chain del par PERRY/WBNB en Pancake (BSC).
+Tracker on-chain para cualquier par de tokens en PancakeSwap (BSC).
 Lee eventos Swap en tiempo real (WSS) y con polling HTTP (para no perder nada), y decodifica Uni/Pancake V2 y V3.
 Guarda cada operación en swaps.csv con BUY/SELL + montos + USD aproximado.
 
-También sirve para cualquier token/par: cambia direcciones en .env.
----
+Solo necesitas cambiar las direcciones en .env para rastrear el token/par que quieras.
+
 
 0) Qué hace y cómo está armado
 	•	track-swaps.js → motor principal: escucha logs del pool y escribe swaps.csv.
 	•	watch.js → sniffer ligero para verificar que tu RPC/WSS devuelve logs.
-	•	check-pool.js → sanity check del par (que token0/1 sean los que crees).
+	•	check-pool.js → sanity check del par (que token0/token1 sean los que crees).
 
 Decodificación robusta
-
 Algunos pools usan un topic[0] distinto al estándar. El tracker:
-	1.	intenta V3 (firma oficial),
-	2.	intenta V2,
-	3.	y si falla, hace fallback manual V3 (decodifica data “a mano” y toma sender/recipient de los topics).
+	1.	Intenta V3 (firma oficial).
+	2.	Intenta V2.
+	3.	Si falla, hace fallback manual V3 (decodifica data “a mano” y toma sender/recipient de los topics).
+
 Así evitamos perder swaps aunque el topic sea raro.
 
-----
+⸻
 
+📦 Requisitos
+	•	Node.js 18+ (probado con v24.x)
+	•	NPM
+	•	RPC URL (HTTP y opcionalmente WSS) para BSC
 
-## 📦 Requisitos
-
-- Node.js 18+ (probado con v24.x)
-- NPM
-- RPC URL (HTTP y opcionalmente WSS) para BSC
-
-	•	Un RPC HTTP de BSC (obligatorio) y un WSS (opcional, para tiempo real).
-Públicos que funcionaron en pruebas:
+Ejemplos de RPCs públicos que funcionaron en pruebas:
 	•	HTTP: https://bsc.drpc.org
 	•	WSS:  wss://bsc-rpc.publicnode.com
-(mejor usa endpoints con API key para producción; más estables y sin límites)
 
-2) Instalación
+Para producción, usa endpoints con API key (más estables y sin límites).
 
-# clona tu repositorio
-git clone https://github.com/cesarge13/perry-tracker-example.git
-cd <tu-repo>
+⸻
 
-# instala dependencias
+1) Instalación
+# Clona repositorio
+git clone https://github.com/cesarge13/token_tracker_EVM.git
+cd token_tracker_EVM.git
+
+# Instala dependencias
 npm install
 
-3) Variables de entorno (NO las publiques)
+2) Variables de entorno (NO las publiques)
 
 El repo debe tener .gitignore con .env ignorado.
-Ejemplo de ~/.env privado (no va al repo):
+
+Ejemplo de .env privado (no va al repo):
 
 # RPCs
 RPC_URL_HTTP=https://bsc.drpc.org
 RPC_URL_WS=wss://bsc-rpc.publicnode.com
 
-# Par PERRY/WBNB (puedes cambiar a otro)
-POOL_ADDRESS=0x560A3375C67c8ad4c13018C87633e6066477151F
-PERRY=0x5043F271095350c5ac7db2384A0d9337E27c1055
-WBNB=0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c
+# Par a rastrear (cambia según el token/par que desees)
+POOL_ADDRESS=0x....
+TOKEN0_ADDRESS=0x....
+TOKEN1_ADDRESS=0x....
 
 # Umbral de alerta (consola)
 LARGE_TRADE_USD=1000
 
-4) Uso rápido
-
-# 1) comprobación del pool
-node check-pool.js
-# Debe imprimir token0/1 y "¿Pool correcto PERRY/WBNB?: SÍ"
-
-# 2) sniffer de logs (para ver que RPC/WSS devuelven eventos)
-node watch.js
-# Verás "eth_subscribe OK" (si el WSS permite) y/o ventanas con "X logs"
-
-# 3) tracker principal (genera/actualiza swaps.csv)
+3) Comandos
+# 1) Tracker que escribe swaps.csv
 node track-swaps.js
-# Verás líneas tipo:
-# Ventana [5737xxxx-5737yyyy] -> N logs
-# BUY_PERRY [V3*] | PERRY=86,682.00 | BNB=0.2142 | ~$128 | tx=0x...
 
-CSV schema (swaps.csv):
-ts,tx,side,amountPERRY,amountWBNB,usd,sender,recipient
-	•	side: BUY_PERRY / SELL_PERRY
-	•	usd se calcula con precio de BNB desde Coingecko (aprox; sin slippage/fee).
+# 2) Sniffer de logs (diagnóstico; no escribe CSV)
+node watch.js
 
+# 3) Verifica el par y decimales
+node check-pool.js
 
-5) Cómo cambiar a otro token/par
-	1.	Sustituye POOL_ADDRESS, PERRY, WBNB en .env.
-	2.	Ejecuta node check-pool.js para asegurar que el par corresponde (que token0/1 coincidan con tus direcciones).
-	3.	Ejecuta node track-swaps.js.
+# 4) Descubre pools del token (vía Dexscreener)
+node discover-pools.js
 
-6) Verificación con BscScan
+# 5) Encuentra pools con swaps en la ventana reciente
+node find-pools.js
 
-Si un swap aparece en tu CSV pero no en DexScreener, valida contra la fuente de la verdad (BscScan):
-	1.	Abre la tx en bscscan.com/tx/<hash>.
-	2.	Pestaña Logs → busca el evento Swap del pair (POOL_ADDRESS).
-	3.	Los amount0/amount1 deben coincidir (tu script convierte a unidades humanas y usa valor absoluto).
-	•	En V3:
-	•	con token0=PERRY / token1=WBNB
-	•	amount0 < 0 ⇒ BUY_PERRY
-	•	amount1 < 0 ⇒ SELL_PERRY
+# 6) Limpieza rápida / profunda
+bash reset.sh
+bash reset.sh --deep && npm install
 
-DexScreener puede ocultar/agrup​ar ciertos swaps (MEV, directos sin router, multi‑hop). Tu tracker registra todo lo que realmente sucedió on‑chain.
+Formato CSV (swaps.csv):
+ts,tx,side,amountTOKEN0,amountTOKEN1,usd,sender,recipient
 
-⸻
+	•	side: BUY_TOKEN0 / SELL_TOKEN0
+	•	usd: calculado usando precio del token base (ej. BNB) desde Coingecko (aprox).
 
-7) Diagnóstico rápido (cuando “no salen swaps”)
+4) Cambiar a otro token/par
+	1.	Sustituye POOL_ADDRESS, TOKEN0_ADDRESS, TOKEN1_ADDRESS en .env.
+	2.	Ejecuta:
+			node check-pool.js
+	3.	Si es correcto, corre:
+		node track-swaps.js
+	
 
-A. Comprueba que tu HTTP RPC responde (en terminal)
+5) Verificación con BscScan
 
-curl -s -X POST "$RPC_URL_HTTP" \
-  -H "Content-Type: application/json" \
-  --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'
+Si un swap aparece en tu CSV pero no en DexScreener, valida contra BscScan:
+	1.	Abre la tx en https://bscscan.com/tx/<hash>.
+	2.	Ve a la pestaña Logs → busca el evento Swap del par (POOL_ADDRESS).
+	3.	Los amount0/amount1 deben coincidir con los de tu CSV.
 
-(Debe devolver un hex (0x…). Si sale Unauthorized, usa otro endpoint o añade tu API key.)
-
-B. Ventanas de getLogs (diagnóstico en terminal)
-node -e "import 'dotenv/config';import {ethers} from 'ethers';
-const p=new ethers.JsonRpcProvider(process.env.RPC_URL_HTTP,{chainId:56,name:'bnb'});
-const pool=process.env.POOL_ADDRESS;
-(async()=>{const latest=await p.getBlockNumber();const from=Math.max(1,latest-2000);let total=0;
-for(let s=from;s<=latest;s+=500){const e=Math.min(latest,s+499);
-const logs=await p.getLogs({address:pool,fromBlock:s,toBlock:e});
-total+=logs.length;console.log('ventana',s,'-',e,'=>',logs.length)}
-console.log('TOTAL',total);process.exit(0)})().catch(console.error)"
-
-
-	•	Si TOTAL > 0, el HTTP sirve y track-swaps.js debería empezar a registrar.
-	•	Si ves “Cannot read properties of null (reading ‘map’)”: es el RPC público saturado → cambia a un endpoint con API key (Ankr/QuickNode/Nodereal) o reintenta (el script ya reintenta).
-
-
-C. WSS con eth_subscribe
-
-Muchos WSS bloquean filtros por topics; por eso el tracker usa address‑only + filtro local y, si falla WSS, queda el polling HTTP para no perder nada.
+DexScreener puede ocultar ciertos swaps (MEV, directos sin router, multi-hop).
+Tu tracker siempre registra lo que ocurrió on-chain.
 
 ⸻
 
-8) Errores comunes que vimos (y solución)
-	•	Faltan variables en .env
-→ Falta POOL_ADDRESS/PERRY/WBNB o RPC_URL_HTTP. Revisa .env.
-	•	eth_newFilter: Method disabled
-→ Límite del RPC público. El tracker ya evita newFilter y usa getLogs + address‑only.
-	•	Cannot read properties of null (reading 'map') en getLogs
-→ Respuesta parcial del RPC. Ya lo capturamos con try/catch y reintento; mejor usa endpoint con API key.
-	•	“No swaps en bloques …” mientras hay trades en DexScreener
-→ Prueba ventana B (arriba). Si TOTAL=0, cambia de HTTP RPC.
-→ Si TOTAL>0 pero el script imprime logs>0, swaps=0, seguramente el topic[0] es no estándar. Nuestro fallback V3 manual (marcado como [V3*]) ya lo resuelve.
-	•	Diferencias en WBNB vs DexScreener
-→ Por redondeos, perspectiva BUY/SELL y/o su agregación. Valida con BscScan; on‑chain manda.
-	•	MODULE_NOT_FOUND / rutas
-→ Estabas ejecutando desde otra carpeta o el archivo no existía en esa ruta.
-	•	Zsh imprime number expected
-→ Ocurre si pegas líneas con comentarios # directamente en el comando. Ejecuta sólo la parte del comando, sin comentarios.
+6) Errores comunes
+	•	Faltan variables en .env → revisa que tengas todas (POOL_ADDRESS, TOKEN0_ADDRESS, TOKEN1_ADDRESS, RPC_URL_HTTP).
+	•	RPC saturado → cambia a uno con API key.
+	•	“No swaps en bloques …” mientras hay trades → puede ser un topic[0] no estándar, el script ya lo maneja con fallback.
 
 ⸻
 
-9) Seguridad y buenas prácticas
-	•	Nunca subas .env (usa .gitignore y revisa git ls-files antes de hacer push).
-	•	Si algún secreto se filtró, rota esa key en el proveedor.
-	•	Para producción, usa RPC con API key y monitoreo (reintentos + alertas).
+7) Seguridad
+	•	Nunca subas .env al repo.
+	•	Si se filtra una API key, cámbiala en el proveedor.
+	•	Para producción, usa RPCs con API key y monitoreo.
+
+				
+
